@@ -24,8 +24,12 @@ class L4Lb(app_manager.RyuApp):
         self.vip = '10.0.0.10'
         self.dips = ('10.0.0.2', '10.0.0.3')
         self.dmacs = ('00:00:00:00:00:02', '00:00:00:00:00:03')
+        
         #
         # write your code here, if needed
+         
+        self.counter=0 
+
         #
 
     def _send_packet(self, datapath, port, pkt):
@@ -65,11 +69,103 @@ class L4Lb(app_manager.RyuApp):
         eth = pkt.get_protocols(ethernet.ethernet)[0]
         #
         # write your code here, if needed
+
+
+        judgement = ETH_TYPE_ARP == eth.ethertype
+
+        if judgement :
+
+            arp_pkt = pkt.get_protocols(arp.arp)[0]
+
+            case_1 = arp_pkt.src_ip == self.dips[1] or arp_pkt.src_ip == self.dips[0] and arp.ARP_REQUEST == arp_pkt.opcode
+
+            case_2 = arp.ARP_REQUEST == arp_pkt.opcode and self.vip == arp_pkt.dst_ip
+
+            if case_1 : 
+
+                p=packet.Packet()
+
+                p.add_protocol(ethernet.ethernet(ethertype=ETH_TYPE_ARP, dst=eth.src, src='00:00:00:00:00:01'))
+
+                p.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac='00:00:00:00:00:01', src_ip='10.0.0.1',dst_mac=eth.src,dst_ip=arp_pkt.src_ip))
+
+                out=self._send_packet(dp,in_port,p)
+
+                dp.send_msg(out)
+
+                return
+
+            elif  case_2 :
+
+                p=packet.Packet()
+
+                p.add_protocol(ethernet.ethernet(ethertype=ETH_TYPE_ARP, dst=eth.src, src='00:00:00:00:00:01'))
+
+                p.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac='00:00:00:00:00:02', src_ip=self.vip,dst_mac=eth.src,dst_ip=arp_pkt.src_ip))
+
+                out=self._send_packet(dp,in_port,p)
+
+                dp.send_msg(out)
+
+                return
+
+
+
+
         #
         iph = pkt.get_protocols(ipv4.ipv4)
         tcph = pkt.get_protocols(tcp.tcp)
         #
         # write your code here
+
+
+        length_validation = len(tcph) > 0 and len(iph) > 0
+        
+        if length_validation :
+            
+            tcp_header = tcph[0]
+
+            ip_header = iph[0]
+
+            judgement = self.vip == ip_header.dst
+
+            if judgement :
+
+                if (ip_header.src, ip_header.dst, tcp_header.src_port, tcp_header.dst_port) not in self.ht:
+
+                    self.ht[(ip_header.src, ip_header.dst, tcp_header.src_port, tcp_header.dst_port)] = 2 + self.counter % 2
+
+                    self.counter += 1
+
+                out_port = self.ht[(ip_header.src, ip_header.dst, tcp_header.src_port, tcp_header.dst_port)]
+
+                match = psr.OFPMatch(in_port=in_port, eth_type=ETH_TYPE_IP,ipv4_src=ip_header.src,ipv4_dst=self.dips[out_port-2],ip_proto=ip_header.proto,tcp_src=tcp_header.src_port, tcp_dst=tcp_header.dst_port)
+
+                acts = [psr.OFPActionSetField(ipv4_dst=self.dips[out_port-2]),psr.OFPActionSetField(eth_dst=self.dmacs[out_port-2]),psr.OFPActionOutput(out_port)]
+                
+                self.add_flow(dp,1,match,acts,msg.buffer_id)
+
+                if ofp.OFP_NO_BUFFER != msg.buffer_id :
+        
+                    return
+
+
+            judgement = ip_header.src == self.dips[0] or ip_header.src == self.dips[1]
+
+            if judgement:
+
+                match = psr.OFPMatch(in_port=in_port, eth_type=ETH_TYPE_IP,ipv4_src=ip_header.src,ipv4_dst=ip_header.dst,ip_proto=ip_header.proto,tcp_src=tcp_header.src_port, tcp_dst=tcp_header.dst_port)
+                
+                acts = [psr.OFPActionSetField(ipv4_src=self.vip),psr.OFPActionSetField(eth_dst='00:00:00:00:00:01'),psr.OFPActionOutput(1)]
+
+                self.add_flow(dp,1,match,acts,msg.buffer_id)
+
+                if ofp.OFP_NO_BUFFER != msg.buffer_id :
+
+                    return
+
+
+
         #
         data = msg.data if msg.buffer_id == ofp.OFP_NO_BUFFER else None
         out = psr.OFPPacketOut(datapath=dp, buffer_id=msg.buffer_id,
