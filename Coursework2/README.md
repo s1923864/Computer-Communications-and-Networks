@@ -1,2 +1,2 @@
 # Coursework2
-[Link to PDF](cw2.pdf)
+[Link to PDF](CW2_specification.pdf)
