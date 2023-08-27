@@ -9,5 +9,5 @@ This is a comprehensive first course in Computer Communications and Networks, fo
 Clone this repository and compile the code as per the instructions.
 
 ```bash
-git clone https://github.com/s1923864/System-Design-Project.git
-cd System-Design-Project
+git clone https://github.com/s1923864/Computer-Communications-and-Networks.git
+cd Computer-Communications-and-Networks
